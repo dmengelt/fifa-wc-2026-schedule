@@ -217,6 +217,47 @@
     font-size: 12px;
   }
 
+  .travel {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin: 8px 0;
+    padding: 10px 16px;
+    background: repeating-linear-gradient(
+      135deg,
+      rgba(212, 255, 58, 0.04),
+      rgba(212, 255, 58, 0.04) 8px,
+      transparent 8px,
+      transparent 16px
+    );
+    border: 1px dashed #3a3f4a;
+    border-radius: 10px;
+    font-size: 13px;
+  }
+  .travel-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    white-space: nowrap;
+  }
+  .travel-times {
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    flex: 1;
+  }
+  .travel-end-day {
+    color: var(--muted);
+    font-size: 12px;
+    margin-left: 4px;
+  }
+  .travel-duration {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
   @media (max-width: 600px) {
     .container { padding: 24px 14px 60px; }
     h1 { font-size: 22px; }
@@ -231,6 +272,12 @@
       margin-top: 4px;
     }
     .match-teams { font-size: 14px; }
+    .travel {
+      flex-wrap: wrap;
+      gap: 6px 12px;
+      font-size: 12px;
+    }
+    .travel-times { flex-basis: 100%; order: 3; }
   }
 </style>
 </head>
@@ -436,6 +483,17 @@ const MATCHES = RAW.map(([date,time,venueKey,a,b,stage]) => {
   };
 }).sort((m1,m2) => m1.utc - m2.utc);
 
+// Travel windows when I can't watch. [startDate, startTime, startTz, endDate, endTime, endTz]
+const TRAVEL_RAW = [
+  ["2026-06-20","13:25","Europe/Zurich",       "2026-06-20","14:45","America/Los_Angeles"],
+  ["2026-06-25","11:50","America/Los_Angeles", "2026-06-25","13:00","America/Los_Angeles"],
+  ["2026-06-27","14:10","America/Los_Angeles", "2026-06-28","12:20","Europe/Zurich"],
+];
+const TRAVEL = TRAVEL_RAW.map(([sd,st,stz,ed,et,etz]) => ({
+  startUtc: localToUtc(sd, st, stz),
+  endUtc:   localToUtc(ed, et, etz),
+}));
+
 const KNOCKOUT_STAGES = new Set(["Round of 32","Round of 16","Quarter-final","Semi-final","Third-place","Final"]);
 
 let currentTz = "Europe/Zurich";
@@ -455,24 +513,55 @@ function teamHtml(name) {
   return `<span class="team"><span class="fi fi-${iso}"></span>${name}</span>`;
 }
 
+const fmtDayShort = (date, tz) => new Intl.DateTimeFormat("en-GB",
+  { timeZone: tz, weekday: "short", day: "numeric", month: "short" }).format(date);
+
+function travelHtml(t) {
+  const startTime = fmtTime(t.startUtc, currentTz);
+  const endTime = fmtTime(t.endUtc, currentTz);
+  const sameDay = fmtDateKey(t.startUtc, currentTz) === fmtDateKey(t.endUtc, currentTz);
+  const endLabel = sameDay
+    ? endTime
+    : `${endTime}<span class="travel-end-day">${fmtDayShort(t.endUtc, currentTz)}</span>`;
+  const mins = Math.round((t.endUtc - t.startUtc) / 60000);
+  const h = Math.floor(mins / 60), m = mins % 60;
+  const dur = m ? `${h}h ${m}m` : `${h}h`;
+  return `<div class="travel">
+    <span class="travel-label">Travel</span>
+    <span class="travel-times">${startTime} → ${endLabel}</span>
+    <span class="travel-duration">${dur}</span>
+  </div>`;
+}
+
 function render() {
   const root = document.getElementById("schedule");
+  const items = [
+    ...MATCHES.map(m => ({ utc: m.utc, kind: "match", data: m })),
+    ...TRAVEL.map(t  => ({ utc: t.startUtc, kind: "travel", data: t })),
+  ].sort((a, b) => a.utc - b.utc);
+
   const groups = new Map();
-  for (const m of MATCHES) {
-    const key = fmtDateKey(m.utc, currentTz);
+  for (const it of items) {
+    const key = fmtDateKey(it.utc, currentTz);
     if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(m);
+    groups.get(key).push(it);
   }
 
   const html = [];
   for (const [, list] of groups) {
     const label = fmtDateLabel(list[0].utc, currentTz);
+    const matchCount = list.filter(x => x.kind === "match").length;
     html.push(`<section class="day-group">
       <div class="day-header">
         <span class="day-date">${label}</span>
-        <span class="day-count">${list.length} ${list.length === 1 ? "match" : "matches"}</span>
+        <span class="day-count">${matchCount} ${matchCount === 1 ? "match" : "matches"}</span>
       </div>`);
-    for (const m of list) {
+    for (const it of list) {
+      if (it.kind === "travel") {
+        html.push(travelHtml(it.data));
+        continue;
+      }
+      const m = it.data;
       const stageClass = KNOCKOUT_STAGES.has(m.stage) ? "knockout" : "";
       html.push(`<div class="match">
         <div class="match-time">${fmtTime(m.utc, currentTz)}</div>
