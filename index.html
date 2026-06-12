@@ -183,6 +183,26 @@
     font-weight: 400;
   }
 
+  .score {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text);
+    padding: 0 8px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+  }
+
+  .team.loser { color: var(--muted); font-weight: 400; }
+  .team.loser .fi { opacity: 0.55; }
+
+  .ft-label {
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
   .match-venue {
     font-size: 12px;
     color: var(--muted);
@@ -370,11 +390,11 @@ function localToUtc(dateStr, timeStr, tz) {
   return new Date(naive.getTime() - offset);
 }
 
-// [date, local kick-off, venueKey, teamA, teamB, stage]
+// [date, local kick-off, venueKey, teamA, teamB, stage, optional [scoreA, scoreB]]
 const RAW = [
   // ── Group Stage (matchday 1) ──
-  ["2026-06-11","13:00","azteca",   "Mexico","South Africa","Group A"],
-  ["2026-06-11","20:00","akron",    "South Korea","Czechia","Group A"],
+  ["2026-06-11","13:00","azteca",   "Mexico","South Africa","Group A", [2,0]],
+  ["2026-06-11","20:00","akron",    "South Korea","Czechia","Group A", [2,1]],
   ["2026-06-12","15:00","bmo",      "Canada","Bosnia and Herzegovina","Group B"],
   ["2026-06-12","18:00","sofi",     "United States","Paraguay","Group D"],
   ["2026-06-13","12:00","levis",    "Qatar","Switzerland","Group B"],
@@ -495,12 +515,12 @@ const RAW = [
   ["2026-07-19","15:00","metlife",  "TBD","TBD","Final"],
 ];
 
-const MATCHES = RAW.map(([date,time,venueKey,a,b,stage]) => {
+const MATCHES = RAW.map(([date,time,venueKey,a,b,stage,score]) => {
   const v = VENUES[venueKey];
   return {
     utc: localToUtc(date, time, v.tz),
     venue: v.stadium, city: v.city,
-    teamA: a, teamB: b, stage
+    teamA: a, teamB: b, stage, score
   };
 }).sort((m1,m2) => m1.utc - m2.utc);
 
@@ -537,10 +557,11 @@ const fmtDateKey = (date, tz) => new Intl.DateTimeFormat("en-CA",
 const fmtDateLabel = (date, tz) => new Intl.DateTimeFormat("en-GB",
   { timeZone: tz, weekday: "long", day: "numeric", month: "long" }).format(date);
 
-function teamHtml(name) {
+function teamHtml(name, loser) {
   const iso = FLAGS[name];
-  if (!iso) return `<span class="team team-tbd">${name}</span>`;
-  return `<span class="team"><span class="fi fi-${iso}"></span>${name}</span>`;
+  const cls = loser ? " loser" : "";
+  if (!iso) return `<span class="team team-tbd${cls}">${name}</span>`;
+  return `<span class="team${cls}"><span class="fi fi-${iso}"></span>${name}</span>`;
 }
 
 const fmtDayShort = (date, tz) => new Intl.DateTimeFormat("en-GB",
@@ -595,13 +616,21 @@ function render() {
       const stageClass = KNOCKOUT_STAGES.has(m.stage) ? "knockout" : "";
       const travelling = isDuringTravel(m);
       const matchClass = travelling ? "match unavailable" : "match";
-      const timeContent = travelling
-        ? `<span class="travel-mark" title="Traveling — can't watch">${TRAVEL_ICON}</span>${fmtTime(m.utc, currentTz)}`
+      const finished = !!m.score;
+      const [sa, sb] = m.score || [];
+      const timeInner = finished
+        ? `<span class="ft-label">FT</span>`
         : fmtTime(m.utc, currentTz);
+      const timeContent = travelling
+        ? `<span class="travel-mark" title="Traveling — can't watch">${TRAVEL_ICON}</span>${timeInner}`
+        : timeInner;
+      const teams = finished
+        ? `${teamHtml(m.teamA, sb > sa)}<span class="score">${sa} - ${sb}</span>${teamHtml(m.teamB, sa > sb)}`
+        : `${teamHtml(m.teamA)}<span class="vs">vs</span>${teamHtml(m.teamB)}`;
       html.push(`<div class="${matchClass}">
         <div class="match-time">${timeContent}</div>
         <div class="match-info">
-          <div class="match-teams">${teamHtml(m.teamA)}<span class="vs">vs</span>${teamHtml(m.teamB)}</div>
+          <div class="match-teams">${teams}</div>
           <div class="match-venue">${m.venue} · ${m.city}</div>
         </div>
         <div class="match-stage ${stageClass}">${m.stage}</div>
