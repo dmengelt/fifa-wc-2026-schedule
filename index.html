@@ -650,7 +650,54 @@ document.querySelectorAll(".tz-btn").forEach(btn => {
   });
 });
 
+// ESPN uses slightly different names for a few teams.
+const ESPN_TEAM_ALIAS = {
+  "Bosnia-Herzegovina": "Bosnia and Herzegovina",
+  "Congo DR": "DR Congo",
+};
+const normaliseTeam = (n) => ESPN_TEAM_ALIAS[n] || n;
+
+// Index matches by UTC day + sorted team pair so we can overlay results.
+const MATCH_INDEX = new Map();
+for (const m of MATCHES) {
+  const day = m.utc.toISOString().slice(0, 10);
+  const key = day + "|" + [m.teamA, m.teamB].sort().join("|");
+  MATCH_INDEX.set(key, m);
+}
+
+async function fetchResults() {
+  const url = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=20260611-20260720&limit=200";
+  try {
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json();
+    let updated = false;
+    for (const ev of data.events || []) {
+      if (!ev?.status?.type?.completed) continue;
+      const comps = ev.competitions?.[0]?.competitors || [];
+      if (comps.length !== 2) continue;
+      const teams = comps.map(c => ({
+        name: normaliseTeam(c.team?.displayName),
+        score: parseInt(c.score, 10),
+      }));
+      const day = ev.date.slice(0, 10);
+      const key = day + "|" + teams.map(t => t.name).sort().join("|");
+      const m = MATCH_INDEX.get(key);
+      if (!m) continue;
+      const sa = teams.find(t => t.name === m.teamA)?.score;
+      const sb = teams.find(t => t.name === m.teamB)?.score;
+      if (Number.isNaN(sa) || Number.isNaN(sb)) continue;
+      m.score = [sa, sb];
+      updated = true;
+    }
+    if (updated) render();
+  } catch (err) {
+    console.warn("ESPN result fetch failed:", err);
+  }
+}
+
 render();
+fetchResults();
 </script>
 </body>
 </html>
